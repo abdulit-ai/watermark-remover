@@ -1,39 +1,40 @@
 import streamlit as st
-from PIL import Image
-import numpy as np
 import cv2
+import numpy as np
+from PIL import Image
 
-st.set_page_config(page_title="Watermark Remover", layout="centered")
+st.title("📸 Smart Watermark Remover")
 
-st.title("📸 Simple Watermark Remover")
-st.write("Upload an image and use the tool to clean it up.")
+uploaded_file = st.file_uploader("Upload Image", type=["jpg", "jpeg", "png"])
 
-uploaded_file = st.file_uploader("Choose an image...", type=["jpg", "jpeg", "png"])
-
-if uploaded_file is not None:
-    # Convert file to OpenCV format
+if uploaded_file:
+    # 1. Load Image and fix Colors
     file_bytes = np.asarray(bytearray(uploaded_file.read()), dtype=np.uint8)
-    image = cv2.imdecode(file_bytes, 1)
-    st.image(image, channels="BGR", caption="Original Image")
+    img = cv2.imdecode(file_bytes, 1)
+    img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB) # Fix the blue tint!
 
-    if st.button("Remove Watermark"):
-        # Note: True automated removal often requires a mask. 
-        # Here we use a simple 'Inpaint' method as a baseline.
-        # For a production app, you'd integrate an AI model like 'Lama'.
+    st.image(img_rgb, caption="Original Image")
+
+    # 2. Add a slider to help find the watermark
+    sensitivity = st.slider("Watermark Detection Sensitivity", 0, 255, 200)
+
+    if st.button("Clean Image"):
+        # Convert to grayscale to find the text/logo
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         
-        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-        _, thresh = cv2.threshold(gray, 200, 255, cv2.THRESH_BINARY)
+        # Create a 'mask' of the watermark
+        _, mask = cv2.threshold(gray, sensitivity, 255, cv2.THRESH_BINARY)
         
-        # Inpaint to fill the watermark area
-        dst = cv2.inpaint(image, thresh, 3, cv2.INPAINT_TELEA)
-        
-        st.image(dst, channels="BGR", caption="Processed Image")
-        
-        # Download button
-        _, buffer = cv2.imencode('.png', dst)
-        st.download_button(
-            label="Download Clean Image",
-            data=buffer.tobytes(),
-            file_name="cleaned_image.png",
-            mime="image/png"
-        )
+        # Dilate the mask (make the 'search area' slightly bigger for better blending)
+        kernel = np.ones((3,3), np.uint8)
+        mask = cv2.dilate(mask, kernel, iterations=1)
+
+        # Inpaint: This 'heals' the area under the mask
+        result_bgr = cv2.inpaint(img, mask, 3, cv2.INPAINT_TELEA)
+        result_rgb = cv2.cvtColor(result_bgr, cv2.COLOR_BGR2RGB)
+
+        st.image(result_rgb, caption="Result")
+
+        # Download Button
+        res_pil = Image.fromarray(result_rgb)
+        st.download_button("Download Cleaned Image", data=uploaded_file, file_name="cleaned.png")
