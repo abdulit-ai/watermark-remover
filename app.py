@@ -4,6 +4,7 @@ import numpy as np
 from PIL import Image
 from streamlit_drawable_canvas import st_canvas
 import io
+import base64
 
 # Set page to wide mode
 st.set_page_config(page_title="AI Watermark Remover", layout="wide")
@@ -12,6 +13,13 @@ st.title("🖌️ AI Watermark Remover")
 st.write("1. Upload image | 2. Paint over the watermark | 3. Click 'Clean'")
 
 uploaded_file = st.sidebar.file_uploader("Upload Image", type=["jpg", "png", "jpeg"])
+
+def get_image_base64(img):
+    """Helper to convert image to a format the canvas won't crash on"""
+    buffered = io.BytesIO()
+    img.save(buffered, format="PNG")
+    img_str = base64.b64encode(buffered.getvalue()).decode()
+    return f"data:image/png;base64,{img_str}"
 
 if uploaded_file:
     # Load and prepare image
@@ -22,6 +30,9 @@ if uploaded_file:
     display_width = 700
     ratio = display_width / width
     display_height = int(height * ratio)
+
+    # WORKAROUND: Convert to Base64 to avoid AttributeError
+    bg_url = get_image_base64(original_pil)
 
     col1, col2 = st.columns(2)
 
@@ -34,6 +45,7 @@ if uploaded_file:
             stroke_width=stroke_width,
             stroke_color="#FFFFFF",
             background_image=original_pil,
+            background_label=bg_url, # Adding this help the library find the URL
             update_streamlit=True,
             height=display_height,
             width=display_width,
