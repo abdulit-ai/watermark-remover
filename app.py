@@ -2,66 +2,71 @@ import streamlit as st
 import cv2
 import numpy as np
 from PIL import Image
-from streamlit_canvas_events import st_canvas
 import io
+from streamlit_image_coordinates import streamlit_image_coordinates
 
 st.set_page_config(page_title="Pro Watermark Remover", layout="wide")
 
-st.title("🖌️ Long Watermark Remover")
-st.write("Scribble/Click along the entire watermark, then click 'Clean'")
+st.title("🖌️ Multi-Point Watermark Remover")
+st.write("Click along the watermark to cover it entirely. Each click adds a 'healing' spot.")
+
+# Initialize a 'memory' for your clicks so they don't disappear
+if 'points' not in st.session_state:
+    st.session_state.points = []
 
 uploaded_file = st.sidebar.file_uploader("Upload Image", type=["jpg", "png", "jpeg"])
 
 if uploaded_file:
-    # Load image
-    img_pil = Image.open(uploaded_file).convert("RGB")
-    width, height = img_pil.size
+    img = Image.open(uploaded_file).convert("RGB")
+    img_array = np.array(img)
     
-    # Scale for display
-    display_width = 800
-    ratio = display_width / width
-    display_height = int(height * ratio)
-
     col1, col2 = st.columns(2)
 
     with col1:
-        st.subheader("1. Trace the watermark")
-        # The new stable canvas tool
-        points = st_canvas(
-            fill_color="rgba(255, 0, 0, 0.3)",
-            stroke_width=20,
-            stroke_color="#FF0000",
-            background_image=img_pil,
-            width=display_width,
-            height=display_height,
-            drawing_mode="freedraw",
-            key="canvas",
-        )
+        st.subheader("1. Click to cover the watermark")
+        # Record clicks on the image
+        value = streamlit_image_coordinates(img, key="multiclick")
+        
+        if value:
+            # Save the new click to our list
+            point = (value['x'], value['y'])
+            if point not in st.session_state.points:
+                st.session_state.points.append(point)
+
+        if st.button("Reset Clicks"):
+            st.session_state.points = []
+            st.rerun()
 
     with col2:
         st.subheader("2. Result")
-        if st.button("Clean Entire Trace"):
-            if points.image_data is not None:
-                # 1. Get the drawing mask
-                # This captures your entire long scribble
-                mask = points.image_data[:, :, 3] 
-                mask = cv2.resize(mask, (width, height))
-                
-                # 2. Convert for OpenCV
-                img_array = np.array(img_pil)
-                img_bgr = cv2.cvtColor(img_array, cv2.COLOR_RGB2BGR)
-                
-                # 3. Heal the image along the scribble
-                # We use a slightly higher radius (10) to blend long lines better
-                res_bgr = cv2.inpaint(img_bgr, mask, 10, cv2.INPAINT_TELEA)
-                res_rgb = cv2.cvtColor(res_bgr, cv2.COLOR_BGR2RGB)
-                res_pil = Image.fromarray(res_rgb)
-                
-                st.image(res_pil, use_container_width=True)
-                
-                # 4. Download
-                buf = io.BytesIO()
-                res_pil.save(buf, format="PNG")
-                st.download_button("Download Cleaned Image", buf.getvalue(), "cleaned.png")
+        
+        # Create a mask using ALL the points clicked
+        mask = np.zeros(img_array.shape[:2], dtype=np.uint8)
+        brush_size = st.slider("Brush Size (Circle thickness)", 5, 100, 25)
+        
+        for p in st.session_state.points:
+            cv2.circle(mask, p, brush_size, 255, -1)
+
+        if st.button("Clean All Marked Spots"):
+            img_bgr = cv2.cvtColor(img_array, cv2.COLOR_RGB2BGR)
+            # Apply healing to the whole mask
+            res_bgr = cv2.inpaint(img_bgr, mask, 10, cv2.INPAINT_TELEA)
+            res_rgb = cv2.cvtColor(res_bgr, cv2.COLOR_BGR2RGB)
+            res_pil = Image.fromarray(res_rgb)
+            
+            st.image(res_pil, caption="Watermark Removed!")
+            
+            # Download
+            buf = io.BytesIO()
+            res_pil.save(buf, format="PNG")
+            st.download_button("Download Image", buf.getvalue(), "cleaned.png")
+        else:
+            # Show a preview of the mask so you know where you've clicked
+            preview_img = img_array.copy()
+            for p in st.session_state.points:
+                cv2.circle(preview_img, p, brush_size, (255, 0, 0), -1)
+            st.image(preview_img, caption="Preview of areas to be cleaned")
+
 else:
-    st.info("Please upload an image in the sidebar.")
+    st.session_state.points = []
+    st.info("Upload an image to begin.")
