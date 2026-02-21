@@ -4,48 +4,35 @@ import numpy as np
 from PIL import Image
 from streamlit_drawable_canvas import st_canvas
 import io
-import base64
 
-# Set page to wide mode
-st.set_page_config(page_title="AI Watermark Remover", layout="wide")
+st.set_page_config(page_title="Watermark Remover", layout="wide")
 
-st.title("🖌️ AI Watermark Remover")
-st.write("1. Upload image | 2. Paint over the watermark | 3. Click 'Clean'")
+st.title("🖌️ Watermark Remover")
 
 uploaded_file = st.sidebar.file_uploader("Upload Image", type=["jpg", "png", "jpeg"])
 
-def get_image_base64(img):
-    """Helper to convert image to a format the canvas won't crash on"""
-    buffered = io.BytesIO()
-    img.save(buffered, format="PNG")
-    img_str = base64.b64encode(buffered.getvalue()).decode()
-    return f"data:image/png;base64,{img_str}"
-
 if uploaded_file:
-    # Load and prepare image
-    original_pil = Image.open(uploaded_file).convert("RGB")
-    width, height = original_pil.size
+    # Open image
+    img = Image.open(uploaded_file).convert("RGB")
     
-    # Scale image to fit the screen
+    # Resize logic for the canvas
+    width, height = img.size
     display_width = 700
     ratio = display_width / width
     display_height = int(height * ratio)
 
-    # WORKAROUND: Convert to Base64 to avoid AttributeError
-    bg_url = get_image_base64(original_pil)
-
     col1, col2 = st.columns(2)
 
     with col1:
-        st.subheader("Step 1: Paint the watermark")
+        st.subheader("1. Draw over watermark")
         stroke_width = st.slider("Brush Size", 1, 50, 15)
         
+        # Use the PIL image directly. This works in Streamlit 1.24.0
         canvas_result = st_canvas(
-            fill_color="rgba(255, 165, 0, 0.3)", 
+            fill_color="rgba(255, 165, 0, 0.3)",
             stroke_width=stroke_width,
             stroke_color="#FFFFFF",
-            background_image=original_pil,
-            background_label=bg_url, # Adding this help the library find the URL
+            background_image=img,
             update_streamlit=True,
             height=display_height,
             width=display_width,
@@ -54,37 +41,27 @@ if uploaded_file:
         )
 
     with col2:
-        st.subheader("Step 2: Results")
-        if st.button("Clean Selected Area"):
+        st.subheader("2. Result")
+        if st.button("Clean Area"):
             if canvas_result.image_data is not None:
-                # 1. Create a mask from drawing
-                mask = canvas_result.image_data[:, :, 3] 
+                # Get mask from canvas
+                mask = canvas_result.image_data[:, :, 3]
                 mask = cv2.resize(mask, (width, height))
                 
-                # 2. Convert to OpenCV format
-                img_bgr = cv2.cvtColor(np.array(original_pil), cv2.COLOR_RGB2BGR)
+                # Process with OpenCV
+                img_array = np.array(img)
+                img_bgr = cv2.cvtColor(img_array, cv2.COLOR_RGB2BGR)
                 
-                # 3. Apply Inpaint
-                result_bgr = cv2.inpaint(img_bgr, mask, 7, cv2.INPAINT_NS)
+                # Inpaint
+                res_bgr = cv2.inpaint(img_bgr, mask, 3, cv2.INPAINT_TELEA)
+                res_rgb = cv2.cvtColor(res_bgr, cv2.COLOR_BGR2RGB)
+                res_pil = Image.fromarray(res_rgb)
                 
-                # 4. Convert back to RGB
-                result_rgb = cv2.cvtColor(result_bgr, cv2.COLOR_BGR2RGB)
-                result_pil = Image.fromarray(result_rgb)
+                st.image(res_pil)
                 
-                st.image(result_pil, caption="Watermark Removed!")
-                
-                # 5. Prepare download button
+                # Download
                 buf = io.BytesIO()
-                result_pil.save(buf, format="PNG")
-                byte_im = buf.getvalue()
-                
-                st.download_button(
-                    label="Download Clean Image",
-                    data=byte_im,
-                    file_name="cleaned_image.png",
-                    mime="image/png"
-                )
-        else:
-            st.info("Paint over the watermark on the left, then click 'Clean'")
+                res_pil.save(buf, format="PNG")
+                st.download_button("Download Image", buf.getvalue(), "cleaned.png", "image/png")
 else:
-    st.info("Please upload an image in the sidebar to begin.")
+    st.write("Please upload an image in the sidebar.")
