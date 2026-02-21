@@ -12,7 +12,7 @@ uploaded_file = st.file_uploader("Choose an image...", type=["jpg", "jpeg", "png
 
 if uploaded_file is not None:
     # Convert file to OpenCV format
-    file_bytes = np.asarray(bytearray(uploaded_file.read()), dtype=uint8)
+    file_bytes = np.asarray(bytearray(uploaded_file.read()), dtype=np.uint8)
     image = cv2.imdecode(file_bytes, 1)
     st.image(image, channels="BGR", caption="Original Image")
 
